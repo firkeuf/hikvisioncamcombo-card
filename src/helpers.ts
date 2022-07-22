@@ -1,6 +1,6 @@
 import { PropertyValues } from 'lit-element';
 import { HomeAssistant } from 'custom-card-helpers';
-import { BarCardConfig } from './types';
+import { HikvisionCamComboCardConfig } from './types';
 
 /**
  * Performs a deep merge of objects and returns new object. Does not modify
@@ -56,8 +56,8 @@ export function hasConfigOrEntitiesChanged(element: any, changedProps: PropertyV
   return false;
 }
 
-export function createConfigArray(config): BarCardConfig[] {
-  const configArray: BarCardConfig[] = [];
+export function createConfigArray(config): HikvisionCamComboCardConfig[] {
+  const configArray: HikvisionCamComboCardConfig[] = [];
   if (config.entities) {
     for (const entityConfig of config.entities) {
       if (typeof entityConfig == 'string') {
@@ -78,8 +78,8 @@ export function createConfigArray(config): BarCardConfig[] {
   return configArray;
 }
 
-export function createEditorConfigArray(config): BarCardConfig[] {
-  const configArray: BarCardConfig[] = [];
+export function createEditorConfigArray(config): HikvisionCamComboCardConfig[] {
+  const configArray: HikvisionCamComboCardConfig[] = [];
   if (config.entities) {
     for (const entityConfig of config.entities) {
       if (typeof entityConfig == 'string') {
@@ -102,4 +102,33 @@ export function arrayMove(arr, fromIndex, toIndex): any[] {
   newArray.splice(fromIndex, 1);
   newArray.splice(toIndex, 0, element);
   return newArray;
+}
+
+export function sortByDates(a, b): number {
+  // @ts-ignore
+  return new Date(a.last_tripped_time) - new Date(b.last_tripped_time);
+}
+
+export function groupByLastTrippedTime(collection, timedelta): Array<object> {
+  let i = 0;
+  let j = 0;
+  let val;
+  //const timedelta = 60000; // ms
+  const values: Array<any> = [];
+  const result: Array<any> = [];
+  for (; i < collection.length; i++) {
+    val = new Date(collection[i]['last_tripped_time']);
+    const valuesLength = values.length;
+    for (j = 0; j <= valuesLength; j++) {
+      if (values[j] !== val && val - values[j] <= timedelta) {
+        result[j].push(collection[i]);
+        break;
+      } else if (j === valuesLength - 1 || valuesLength === 0) {
+        values.push(val);
+        result.push([collection[i]]);
+        break;
+      }
+    }
+  }
+  return result;
 }

@@ -185,7 +185,7 @@ export const styles = html`
             justify-content: center;
         }
 
-        hikvision-card-iconbar {
+        hikvisioncombo-card-iconbar {
             color: var(--icon-color, var(--paper-item-icon-color));
             align-items: center;
             align-self: center;
@@ -208,23 +208,33 @@ export const styles = html`
             flex-direction: column;
         }
 
-        hikvision-main {
+        hikvisioncamcombo-main {
             display: flex;
             flex-direction: column-reverse;
             height: 100%;
-            max-height: 60ex;
             margin: 10px;
 
         }
 
+        events {
+            display: flex;
+            flex-direction: column-reverse;
+        }
+    events > item {
+      border-bottom-color: grey;
+      border-bottom-style: solid;
+      margin-bottom: 15px;
+      border-bottom-width: 1px;
+    }
+        
         nav-bar {
             display: flex;
 
-            flex-direction: row-reverse;
+            flex-direction: row;
             min-height: 100%;
             padding: 10px;
-            overflow-y: hidden;
-            overflow-x: auto;
+            overflow-y: auto;
+            overflow-x: scroll;
             overflow-scrolling: touch;
         }
 

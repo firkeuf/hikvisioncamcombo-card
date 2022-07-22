@@ -1,6 +1,6 @@
 import { ActionConfig } from 'custom-card-helpers';
 
-export interface BarCardConfig {
+export interface HikvisionCamComboCardConfig {
   minmax: any;
   entity_config: boolean;
   animation: any;

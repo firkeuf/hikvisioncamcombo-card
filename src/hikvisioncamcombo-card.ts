@@ -10,11 +10,17 @@ import {
 
 import './editor';
 
-import { BarCardConfig } from './types';
+import { HikvisionCamComboCardConfig } from './types';
 import { actionHandler } from './action-handler-directive';
 import { CARD_VERSION } from './const';
 import { localize } from './localize/localize';
-import { mergeDeep, hasConfigOrEntitiesChanged, createConfigArray } from './helpers';
+import {
+  mergeDeep,
+  hasConfigOrEntitiesChanged,
+  createConfigArray,
+  sortByDates,
+  groupByLastTrippedTime,
+} from './helpers';
 import { styles } from './styles';
 
 /* eslint no-console: 0 */
@@ -38,15 +44,15 @@ export class HikvisioncamcomboCard extends LitElement {
   }
 
   @property() public hass?: HomeAssistant;
-  @property() private _config!: BarCardConfig;
-  @property() private _configArray: BarCardConfig[] = [];
+  @property() private _config!: HikvisionCamComboCardConfig;
+  @property() private _configArray: HikvisionCamComboCardConfig[] = [];
   private _stateArray: any[] = [];
   private _animationState: any[] = [];
   private eventsList!: any[] | [];
   private _rowAmount = 1;
-  private _EventNumMax = 0;
+  private _EventNumMax = [];
   private _EventNumMin = 0;
-  private _currentEventNum = this._EventNumMax;
+  private _currentEventNum: Array<number> = []; //this._EventNumMax;
 
   protected shouldUpdate(changedProps: PropertyValues): boolean {
     return hasConfigOrEntitiesChanged(this, changedProps, false);
@@ -64,9 +70,13 @@ export class HikvisioncamcomboCard extends LitElement {
     return this.hass.callApi('GET', url);
   }
 
-  private async getHistoryData(enityId, start, end): Promise<object> {
-    const response = await this.fetchRecent(enityId, start, end, true, true);
-    const hist = response[0]
+  private async getHistoryData(enityArray, start, end): Promise<object> {
+    let hist: any = [];
+    for (const obj of enityArray) {
+      const response = await this.fetchRecent(obj, start, end, true, true);
+      hist = hist.concat(response[0]);
+    }
+    hist = hist
       .filter(function(o) {
         if (!o.attributes.box) {
           return false;
@@ -77,20 +87,33 @@ export class HikvisioncamcomboCard extends LitElement {
       .map(function(o) {
         return o.attributes;
       });
-
-    this.eventsList = hist;
-    this._EventNumMax = hist.length - 1;
-    this._currentEventNum = this._EventNumMax;
-
+    //this._EventNumMax = this.eventsList.length - 1;
+    //this._currentEventNum = this._EventNumMax;
+    hist.sort(sortByDates);
+    this.eventsList = groupByLastTrippedTime(hist, 60000).slice(-10);
+    console.warn('this.eventsList', this.eventsList);
+    this.eventsList.forEach(value => {
+      // @ts-ignore
+      this._EventNumMax.push(value.length - 1);
+      return;
+    });
+    this._currentEventNum = [...this._EventNumMax];
     await this.requestUpdate();
-    // @ts-ignore
-    const elt = this.shadowRoot.querySelector('#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum);
-    if (elt) elt.scrollIntoView({ inline: 'nearest' });
-    this._get_canvas(this.eventsList[this._currentEventNum]);
-    return response;
+    //// @ts-ignore
+    //const elt = this.shadowRoot.querySelector(
+    //  '#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum,
+    //);
+    //if (elt) elt.scrollIntoView({ inline: 'nearest' });
+    //this._get_canvas(this.eventsList[this._currentEventNum]);
+    this.eventsList.forEach((value, index) => {
+      console.error(value);
+      this._get_canvas(value[this._currentEventNum[index]], index);
+    });
+    return this.eventsList;
   }
 
-  public setConfig(config: BarCardConfig): void {
+  public setConfig(config: HikvisionCamComboCardConfig): void {
+    console.info('CONFIG', config);
     if (!config) {
       throw new Error(localize('common.invalid_configuration'));
     }
@@ -116,10 +139,10 @@ export class HikvisioncamcomboCard extends LitElement {
       },
       config,
     );
-    this._entityName = config.entities[0].entity;
-
+    if (config.name) this._entityName = config.name;
     if (this._config.stack == 'horizontal') this._config.columns = this._config.entities.length;
     this._configArray = createConfigArray(this._config);
+    console.log('this._configArray', this._configArray);
     this._rowAmount = this._configArray.length / this._config.columns;
   }
 
@@ -161,7 +184,7 @@ export class HikvisioncamcomboCard extends LitElement {
       <time>${time.toLocaleTimeString('en-US')}</time>
     `;
   }
-  private _getNavBar(list): TemplateResult {
+  private _getNavBar(list, eventIndex): TemplateResult {
     const copy_list = [...list];
     return html`
       ${copy_list.reverse().map((item, i, array) => {
@@ -169,11 +192,28 @@ export class HikvisioncamcomboCard extends LitElement {
 
         return html`
           <item
-            id="hikvisioncamcombo__${this._entityName}_item_${j}"
-            class="${j == this._currentEventNum ? 'hikvisioncamcombo__item_selected' : ''}"
-            @click="${(): void => this._setCurrentEventNum(j)}"
+            id="hikvisioncamcombo__${eventIndex}_item_${j}"
+            class="${j === this._currentEventNum[eventIndex] ? 'hikvisioncamcombo__item_selected' : ''}"
+            @click="${(): void => this._setCurrentEventNum(j, eventIndex)}"
           >
             ${this._shortTime(item.last_tripped_time)}
+          </item>
+        `;
+      })}
+    `;
+  }
+
+  private _getEvents(list): TemplateResult {
+    const copy_list = [...list];
+    this.requestUpdate();
+    return html`
+      ${copy_list.map((value, index) => {
+        return html`
+          <item>
+            <div class="hikvisioncamcombo__img">
+              <canvas id="canvas_${index}"></canvas>
+            </div>
+            <nav-bar>${this._getNavBar(value, index)}</nav-bar>
           </item>
         `;
       })}
@@ -192,62 +232,32 @@ export class HikvisioncamcomboCard extends LitElement {
   private _createHikvisionArray(): TemplateResult[] {
     const perRowArray: object[] = [];
     const rowArray: TemplateResult[] = [];
+    console.log('this.haas', this.hass);
+    //this._configArray.forEach(sensor => {
+    //  perRowArray +=
+    //});
     const sensorStatus = this._configArray.find(obj => {
       return obj.entity.includes(this._entityName);
     });
+    console.log('sensorStatus', sensorStatus);
 
     const end = new Date();
     const start = new Date(new Date().getTime() - 168 * 60 * 60 * 1000);
+    console.info('rowArray0', rowArray);
     if (!this.eventsList) {
-      this.getHistoryData(sensorStatus, start, end);
+      this.getHistoryData(this._configArray, start, end);
       return rowArray;
     }
-    const currentEventData = this.eventsList[this._currentEventNum];
-    if (!currentEventData) {
-      return rowArray;
-    }
+    const currentEventData = this.eventsList[0];
+    //if (!currentEventData) {
+    //  return rowArray;
+    //}
     rowArray.push(html`
-      <hikvision-main>
-        <nav-bar>
-          ${this._getNavBar(this.eventsList)}
-        </nav-bar>
-        <hikvision-content>
-          <div class="hikvisioncamcombo__data">
-            <div class="hikvisioncamcombo__name">
-              ${currentEventData.friendly_name}
-            </div>
-            <div class="hikvisioncamcombo__date">
-              ${this._shortTime(currentEventData.last_tripped_time)}
-            </div>
-            <div class="hikvisioncamcombo__box">
-              Detected object: ${currentEventData.detected_object}
-            </div>
-          </div>
-
-          <div class="hikvisioncamcombo__img">
-            <canvas id="canvas"></canvas>
-          </div>
-
-          <div class="hikvisioncm__control">
-            ${this._currentEventNum}
-            <previous-event title="Previous event." @click="${this._previous}">
-              <hikvision-card-iconbar>
-                <ha-icon style="color: #7d7d7d" icon="mdi:arrow-left-bold-circle-outline"></ha-icon>
-              </hikvision-card-iconbar>
-            </previous-event>
-            <next-event title="Next event." @click="${(): void => this._next(sensorStatus, start, end)}">
-              <hikvision-card-iconbar>
-                <ha-icon style="color: #7d7d7d" icon="mdi:arrow-right-bold-circle-outline"></ha-icon>
-              </hikvision-card-iconbar>
-            </next-event>
-            <latest-event title="Latest event." @click="${(): void => this._latest(sensorStatus, start, end)}">
-              <hikvision-card-iconbar>
-                <ha-icon style="color: #7d7d7d" icon="mdi:lastpass"></ha-icon>
-              </hikvision-card-iconbar>
-            </latest-event>
-          </div>
-        </hikvision-content>
-      </hikvision-main>
+      <hikvisioncamcombo-main>
+        <events>
+          ${this._getEvents(this.eventsList)}
+        </events>
+      </hikvisioncamcombo-main>
     `);
 
     return rowArray;
@@ -269,53 +279,54 @@ export class HikvisioncamcomboCard extends LitElement {
     return path + encodeURIComponent(file);
   }
 
-  _setCurrentEventNum(i): void {
-    if (i <= this._EventNumMax && i >= this._EventNumMin) {
-      this._currentEventNum = i;
+  _setCurrentEventNum(i, eventIndex): void {
+    console.warn('_setCurrentEventNum');
+    if (i <= this._EventNumMax[eventIndex] && i >= this._EventNumMin) {
+      this._currentEventNum[eventIndex] = i;
       this.requestUpdate();
-      const currentEventData = this.eventsList[this._currentEventNum];
-      this._get_canvas(currentEventData);
+      const currentEventData = this.eventsList[eventIndex][this._currentEventNum[eventIndex]];
+      this._get_canvas(currentEventData, eventIndex);
     }
   }
 
-  _previous(): void {
-    if (this._currentEventNum > this._EventNumMin) {
-      this._currentEventNum -= 1;
-      this.requestUpdate();
-      const currentEventData = this.eventsList[this._currentEventNum];
-      // @ts-ignore
-      const elt = this.shadowRoot.querySelector(
-        '#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum,
-      );
-      if (elt) elt.scrollIntoView({ inline: 'nearest' });
+  //  _previous(): void {
+  //    if (this._currentEventNum > this._EventNumMin) {
+  //      this._currentEventNum -= 1;
+  //      this.requestUpdate();
+  //      const currentEventData = this.eventsList[this._currentEventNum];
+  //      // @ts-ignore
+  //      const elt = this.shadowRoot.querySelector(
+  //        '#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum,
+  //      );
+  //      if (elt) elt.scrollIntoView({ inline: 'nearest' });
+  //
+  //      this._get_canvas(currentEventData);
+  //    }
+  //  }
 
-      this._get_canvas(currentEventData);
-    }
-  }
+  //  _next(sensorStatus, start, end): void {
+  //    if (this._currentEventNum < this._EventNumMax) {
+  //      this._currentEventNum += 1;
+  //      this.requestUpdate();
+  //      // @ts-ignore
+  //      const elt = this.shadowRoot.querySelector(
+  //        '#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum,
+  //      );
+  //      if (elt) elt.scrollIntoView({ inline: 'nearest' });
+  //      const currentEventData = this.eventsList[this._currentEventNum];
+  //      this._get_canvas(currentEventData);
+  //    } else {
+  //      this.getHistoryData(sensorStatus, start, end);
+  //    }
+  //  }
+  //
+  //  _latest(sensorStatus, start, end): void {
+  //    this.getHistoryData(sensorStatus, start, end);
+  //  }
 
-  _next(sensorStatus, start, end): void {
-    if (this._currentEventNum < this._EventNumMax) {
-      this._currentEventNum += 1;
-      this.requestUpdate();
-      // @ts-ignore
-      const elt = this.shadowRoot.querySelector(
-        '#hikvisioncamcombo__' + this._entityName + '_item_' + this._currentEventNum,
-      );
-      if (elt) elt.scrollIntoView({ inline: 'nearest' });
-      const currentEventData = this.eventsList[this._currentEventNum];
-      this._get_canvas(currentEventData);
-    } else {
-      this.getHistoryData(sensorStatus, start, end);
-    }
-  }
-
-  _latest(sensorStatus, start, end): void {
-    this.getHistoryData(sensorStatus, start, end);
-  }
-
-  _get_canvas(currentEventData): void {
+  _get_canvas(currentEventData, eventIndex): void {
     // @ts-ignore
-    const canvas = this.shadowRoot.querySelector('#canvas');
+    const canvas = this.shadowRoot.querySelector('#canvas_' + eventIndex);
     // @ts-ignore
     const ctx = canvas.getContext('2d');
     // @ts-ignore
@@ -360,7 +371,8 @@ export class HikvisioncamcomboCard extends LitElement {
     img.src = this._imgUrl(currentEventData.file_path);
     imgCropped.src = this._imgUrlCropped(currentEventData.file_path);
   }
+
   getCardSize(): number {
-    return 2;
+    return 25;
   }
 }

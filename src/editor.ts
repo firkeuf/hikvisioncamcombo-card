@@ -1,10 +1,10 @@
 import { LitElement, html, customElement, property, TemplateResult, CSSResult, css, PropertyValues } from 'lit-element';
 import { HomeAssistant, fireEvent, LovelaceCardEditor, ActionConfig } from 'custom-card-helpers';
 
-import { BarCardConfig } from './types';
+import { HikvisionCamComboCardConfig } from './types';
 import { createEditorConfigArray, arrayMove, hasConfigOrEntitiesChanged } from './helpers';
 
-@customElement('hikvision-card-editor')
+@customElement('hikvisioncombo-card-editor')
 export class BarCardEditor extends LitElement implements LovelaceCardEditor {
   @property() public hass?: HomeAssistant;
   @property() private _config;
@@ -17,7 +17,7 @@ export class BarCardEditor extends LitElement implements LovelaceCardEditor {
     return hasConfigOrEntitiesChanged(this, changedProps, true);
   }
 
-  public setConfig(config: BarCardConfig): void {
+  public setConfig(config: HikvisionCamComboCardConfig): void {
     this._config = { ...config };
 
     if (!config.entity && !config.entities) {
@@ -1012,7 +1012,7 @@ export class BarCardEditor extends LitElement implements LovelaceCardEditor {
       return;
     }
     const target = ev.target;
-    const entitiesArray: BarCardConfig[] = [];
+    const entitiesArray: HikvisionCamComboCardConfig[] = [];
     let index = 0;
     for (const config of this._configArray) {
       if (target.configIndex !== index) {

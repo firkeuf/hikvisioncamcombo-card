@@ -283,7 +283,20 @@ export const styles = html`
             position: relative;
             width: 40px;
         }
-
+        
+        .rotate{
+            display: inline-block;
+            animation: rotation 2s infinite linear;
+        }
+        @keyframes rotation {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(359deg);
+            }
+        }
+        
     </style>
 `;
 

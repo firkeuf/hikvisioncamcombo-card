@@ -1,25 +1,17 @@
-import { LitElement, html, customElement, property, TemplateResult, PropertyValues } from 'lit-element';
-import {
-  HomeAssistant,
-  hasAction,
-  handleAction,
-  LovelaceCardEditor,
-  domainIcon,
-  computeDomain,
-} from 'custom-card-helpers';
+import { customElement, html, LitElement, property, PropertyValues, TemplateResult } from 'lit-element';
+import { HomeAssistant, LovelaceCardEditor } from 'custom-card-helpers';
 
 import './editor';
 
 import { HikvisionCamComboCardConfig } from './types';
-import { actionHandler } from './action-handler-directive';
 import { CARD_VERSION } from './const';
 import { localize } from './localize/localize';
 import {
-  mergeDeep,
-  hasConfigOrEntitiesChanged,
   createConfigArray,
-  sortByDates,
   groupByLastTrippedTime,
+  hasConfigOrEntitiesChanged,
+  mergeDeep,
+  sortByDates,
 } from './helpers';
 import { styles } from './styles';
 
@@ -90,8 +82,7 @@ export class HikvisioncamcomboCard extends LitElement {
     //this._EventNumMax = this.eventsList.length - 1;
     //this._currentEventNum = this._EventNumMax;
     hist.sort(sortByDates);
-    this.eventsList = groupByLastTrippedTime(hist, 60000).slice(-10);
-    console.warn('this.eventsList', this.eventsList);
+    this.eventsList = groupByLastTrippedTime(hist, 3 * 60 * 1000).slice(-30);
     this.eventsList.forEach(value => {
       // @ts-ignore
       this._EventNumMax.push(value.length - 1);
@@ -106,14 +97,12 @@ export class HikvisioncamcomboCard extends LitElement {
     //if (elt) elt.scrollIntoView({ inline: 'nearest' });
     //this._get_canvas(this.eventsList[this._currentEventNum]);
     this.eventsList.forEach((value, index) => {
-      console.error(value);
       this._get_canvas(value[this._currentEventNum[index]], index);
     });
     return this.eventsList;
   }
 
   public setConfig(config: HikvisionCamComboCardConfig): void {
-    console.info('CONFIG', config);
     if (!config) {
       throw new Error(localize('common.invalid_configuration'));
     }
@@ -142,7 +131,6 @@ export class HikvisioncamcomboCard extends LitElement {
     if (config.name) this._entityName = config.name;
     if (this._config.stack == 'horizontal') this._config.columns = this._config.entities.length;
     this._configArray = createConfigArray(this._config);
-    console.log('this._configArray', this._configArray);
     this._rowAmount = this._configArray.length / this._config.columns;
   }
 
@@ -203,8 +191,104 @@ export class HikvisioncamcomboCard extends LitElement {
     `;
   }
 
+  async fetchVideo(currentEventData): Promise<object> {
+    //const url = 'http://10.10.0.12/ISAPI/ContentMgmt/search';
+    //const data =
+    //  '<?xml version="1.0" encoding="utf-8"?><CMSearchDescription><searchID>1</searchID><trackIDList><trackID>101</trackID></trackIDList><timeSpanList><timeSpan><startTime>2022-07-22T15:09:15Z</startTime><endTime>2022-07-22T15:09:20Z</endTime></timeSpan></timeSpanList><maxResults>2500</maxResults><searchResultPostion>0</searchResultPostion><metadataList><metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor></metadataList></CMSearchDescription>';
+    const url = 'hikvisioncam';
+    // @ts-ignore
+    //return this.hass.callApi('GET', 'hikvisioncam');
+    //return this.hass.callService('rest_command', 'example_request', { q: '123' });
+    return this.hass.callApi('POST', url, currentEventData);
+  }
+
+  private async fetchAPI(method = 'GET', url = '', data = {}) {
+    // @ts-ignore
+    const token = this.hass.auth.accessToken;
+    return await fetch(url, {
+      method: method, // *GET, POST, PUT, DELETE, etc.
+      cache: 'no-cache',
+      credentials: 'same-origin',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      redirect: 'follow',
+      referrerPolicy: 'no-referrer',
+      body: JSON.stringify(data),
+    });
+  }
+
+  private downloadFile(dataBlob, filename) {
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(dataBlob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() {
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }, 0);
+    return url;
+  }
+
+  private iconProgress(): TemplateResult {
+    return html`
+      <ha-icon class="rotate" style="color: #7d7d7d;" icon="mdi:progress-helper"></ha-icon>
+    `;
+  }
+  private iconCam(): TemplateResult {
+    return html`
+      <ha-icon style="color: #7d7d7d" icon="mdi:video-outline"></ha-icon>
+    `;
+  }
+  private iconImage(): TemplateResult {
+    return html`
+      <ha-icon style="color: #7d7d7d" icon="mdi:camera"></ha-icon>
+    `;
+  }
+
+  private async _getVideo(index): Promise<void> {
+    // @ts-ignore
+    const getVideoElement = this.shadowRoot.querySelector('#get-video_' + index);
+    // @ts-ignore
+    getVideoElement.replaceChildren(this.iconProgress().getTemplateElement().content);
+    const currentEventData = this.eventsList[index][this._currentEventNum[index]];
+    const response = await this.fetchAPI('POST', '/api/hikvisioncam', currentEventData);
+    const fileBlob = await response.blob();
+    // @ts-ignore
+    getVideoElement.replaceChildren(this.iconCam().getTemplateElement().content);
+    if (response.status == 200) {
+      const videoURL = this.downloadFile(
+        fileBlob,
+        `${currentEventData.friendly_name.split(' ')[0]}_${currentEventData.last_tripped_time}.mp4`,
+      );
+    } else {
+      // @ts-ignore
+      const errorMessageElement = this.shadowRoot.querySelector('#error-message_' + index);
+      // @ts-ignore
+      errorMessageElement.replaceChildren(`No Video file. Error code ${response.status}`);
+    }
+    //const url = URL.createObjectURL(fileBlob);
+    //// @ts-ignore
+    //const videoElement = this.shadowRoot.querySelector('#videoElement_' + index);
+    //const buf = await fileBlob.arrayBuffer();
+    //const player = document.createElement('div');
+    //// @ts-ignore
+    //player.innerHTML = `
+    //  <video width="480" controls autoplay >
+    //    <source src="${URL.createObjectURL(new Blob([buf]))}" type="video/mp4" />
+    //    Your browser doesn't support HTML5 video tag.
+    //  </video>
+    //`;
+    //// @ts-ignore
+    //videoElement.append(player);
+  }
+
   private _getEvents(list): TemplateResult {
     const copy_list = [...list];
+    console.log('List', copy_list);
     this.requestUpdate();
     return html`
       ${copy_list.map((value, index) => {
@@ -213,6 +297,18 @@ export class HikvisioncamcomboCard extends LitElement {
             <div class="hikvisioncamcombo__img">
               <canvas id="canvas_${index}"></canvas>
             </div>
+            <get-video title="Get Video." @click="${async (): Promise<void> => this._getVideo(index)}">
+              <hikvision-card-iconbar id="get-video_${index}">
+                ${this.iconCam()}
+              </hikvision-card-iconbar>
+            </get-video>
+            <a title="Get Image." href="${this._imgUrl(this.eventsList[index][this._currentEventNum[index]].file_path)}" download>
+              <hikvision-card-iconbar id="get-image_${index}">
+                ${this.iconImage()}
+              </hikvision-card-iconbar>
+            </a>
+            <error-message id="error-message_${index}"></error-message>
+            <videoElement id="videoElement_${index}"></videoElement>
             <nav-bar>${this._getNavBar(value, index)}</nav-bar>
           </item>
         `;
@@ -232,18 +328,15 @@ export class HikvisioncamcomboCard extends LitElement {
   private _createHikvisionArray(): TemplateResult[] {
     const perRowArray: object[] = [];
     const rowArray: TemplateResult[] = [];
-    console.log('this.haas', this.hass);
     //this._configArray.forEach(sensor => {
     //  perRowArray +=
     //});
     const sensorStatus = this._configArray.find(obj => {
       return obj.entity.includes(this._entityName);
     });
-    console.log('sensorStatus', sensorStatus);
 
     const end = new Date();
     const start = new Date(new Date().getTime() - 168 * 60 * 60 * 1000);
-    console.info('rowArray0', rowArray);
     if (!this.eventsList) {
       this.getHistoryData(this._configArray, start, end);
       return rowArray;
@@ -265,8 +358,13 @@ export class HikvisioncamcomboCard extends LitElement {
 
   _imgUrl(file_path): string {
     const path = '/local/hikvision/';
-    const file = file_path.split('/').slice(-1);
-    return path + encodeURIComponent(file);
+    try {
+      const file = file_path.split('/').slice(-1);
+      return path + encodeURIComponent(file);
+    } catch {
+      const file = 'noFile';
+      return path + encodeURIComponent(file);
+    }
   }
 
   _imgUrlCropped(file_path): string {
@@ -280,7 +378,6 @@ export class HikvisioncamcomboCard extends LitElement {
   }
 
   _setCurrentEventNum(i, eventIndex): void {
-    console.warn('_setCurrentEventNum');
     if (i <= this._EventNumMax[eventIndex] && i >= this._EventNumMin) {
       this._currentEventNum[eventIndex] = i;
       this.requestUpdate();
